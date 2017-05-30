@@ -1,0 +1,23 @@
+{
+  "name": "asg-barge-lb-update",
+  "version": "1.0.0",
+  "description": "A tool that keeps Elastic Load Balancers in sync with k8s nodes",
+  "main": "index.js",
+  "dependencies": {
+    "async": "^1.5.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/turnerlabs/asg-barge-lb-update.git"
+  },
+  "author": "",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/turnerlabs/asg-barge-lb-update/issues"
+  },
+  "homepage": "https://github.com/turnerlabs/asg-barge-lb-update#readme"
+}
