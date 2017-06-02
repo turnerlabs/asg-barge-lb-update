@@ -33,7 +33,7 @@ exports.handler = function(event, context) {
             },
 
             function retrieveInstanceIds(asgResponse, next) {
-                asg_instances = asgResponse.AutoScalingGroups[0].Instances.map(function(instance) {
+                asg_instances = asgResponse.AutoScalingGroups[0] && asgResponse.AutoScalingGroups[0].Instances.map(function(instance) {
                     return instance.InstanceId
                 });
                 console.log('INSTANCE IDS:' + JSON.stringify(asg_instances));
@@ -50,6 +50,7 @@ exports.handler = function(event, context) {
                         console.log('getting next marker', data.nextMarker);
                         getLbs(lbData, data.nextMarker)
                     } else {
+                        console.log("length of all the lbs", lbData.length)
                         next(err, lbData);
                     }
                   });
@@ -66,7 +67,7 @@ exports.handler = function(event, context) {
 //                console.log(all_elbs);
                 var barge_elbs = all_elbs.filter(function(e){
                     for (elbinstance in e[1]){
-                        if(asg_instances.indexOf(e[1][elbinstance]) > -1){
+                        if(asg_instances && asg_instances.indexOf(e[1][elbinstance]) > -1){
                             return true;
                         }
                     }
