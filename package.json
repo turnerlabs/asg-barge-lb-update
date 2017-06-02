@@ -4,7 +4,8 @@
   "description": "A tool that keeps Elastic Load Balancers in sync with k8s nodes",
   "main": "index.js",
   "dependencies": {
-    "async": "^1.5.0"
+    "async": "^1.5.0",
+    "aws-sdk": "^2.58.0"
   },
   "devDependencies": {},
   "scripts": {
