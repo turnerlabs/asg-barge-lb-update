@@ -8,6 +8,10 @@
     "aws-sdk": "^2.58.0"
   },
   "devDependencies": {},
+  "engines": {
+    "npm": "3.10.10",
+    "node": "6.10.0"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
