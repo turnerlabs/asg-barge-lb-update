@@ -46,9 +46,9 @@ exports.handler = function(event, context) {
                       Marker: nextMarker
                   }, function(err, data) {
                     lbData = lbData.concat(data.LoadBalancerDescriptions);
-                    if (data.nextMarker) {
-                        console.log('getting next marker', data.nextMarker);
-                        getLbs(lbData, data.nextMarker)
+                    if (data.NextMarker) {
+                        console.log('getting next marker', data.NextMarker);
+                        getLbs(lbData, data.NextMarker)
                     } else {
                         console.log("length of all the lbs", lbData.length)
                         next(err, lbData);
