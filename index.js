@@ -3,7 +3,7 @@ var async = require('async');
 
 exports.handler = function(event, context) {
     console.log('ASG Barge ELB Handler at ' + new Date().toUTCString());
-    
+    console.log(JSON.stringify(event))
     var asg_msg = JSON.parse(event.Records[0].Sns.Message);
 //    var asg_msg = JSON.parse(event.Message);
     var asg_name = asg_msg.AutoScalingGroupName;
@@ -31,19 +31,34 @@ exports.handler = function(event, context) {
                   next(err, data);
                 });
             },
-        
+
             function retrieveInstanceIds(asgResponse, next) {
-                asg_instances = asgResponse.AutoScalingGroups[0].Instances.map(function(instance) {
+                asg_instances = asgResponse.AutoScalingGroups[0] && asgResponse.AutoScalingGroups[0].Instances.map(function(instance) {
                     return instance.InstanceId
                 });
                 console.log('INSTANCE IDS:' + JSON.stringify(asg_instances));
-                elb.describeLoadBalancers({}, function(err, data) {
-                    next(err, data);
-                });
+                var lbData = [];
+                getLbs(lbData);
+
+                function getLbs(lbData, nextMarker) {
+                  elb.describeLoadBalancers({
+                      PageSize: 400,
+                      Marker: nextMarker
+                  }, function(err, data) {
+                    lbData = lbData.concat(data.LoadBalancerDescriptions);
+                    if (data.NextMarker) {
+                        console.log('getting next marker', data.NextMarker);
+                        getLbs(lbData, data.NextMarker)
+                    } else {
+                        console.log("length of all the lbs", lbData.length)
+                        next(err, lbData);
+                    }
+                  });
+                }
             },
 
             function findASGLoadBalancers(elbdata, next){
-                var all_elbs = elbdata.LoadBalancerDescriptions.map(function(e){
+                var all_elbs = elbdata.map(function(e){
                     var elb = [];
                     elb[0] = e.LoadBalancerName;
                     elb[1] = e.Instances.map(function(i){return i.InstanceId});
@@ -52,7 +67,7 @@ exports.handler = function(event, context) {
 //                console.log(all_elbs);
                 var barge_elbs = all_elbs.filter(function(e){
                     for (elbinstance in e[1]){
-                        if(asg_instances.indexOf(e[1][elbinstance]) > -1){
+                        if(asg_instances && asg_instances.indexOf(e[1][elbinstance]) > -1){
                             return true;
                         }
                     }
@@ -60,7 +75,7 @@ exports.handler = function(event, context) {
                 }).map(function(e){return e[0]});
                 console.log(barge_elbs);
 //                instance_id =  'i-2ed2029d';
-                
+
                 var nextrun = Date.now();
                 var increment = 100;
 
@@ -125,11 +140,10 @@ exports.handler = function(event, context) {
                 console.error('Failed to process DNS updates for ASG event: ', err);
               } else {
                 console.log("Successfully processed DNS updates for ASG event.");
-              } 
-            })  
-    } else {    
+              }
+            })
+    } else {
         console.log("Unsupported ASG event: " + asg_name, asg_event);
         context.done("Unsupported ASG event: " + asg_name, asg_event);
-    }   
+    }
 };
-
