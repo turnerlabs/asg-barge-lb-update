@@ -190,7 +190,7 @@ exports.handler = function(event, context) {
                     return function(err, data) {
                         if (err) {
                             if(err.code === 'Throttling') {
-                                console.log('Retrying ' + barge_elbs[b], barges_elbs[b]);
+                                console.log('Retrying ' + barge_elbs[b]);
                                 schedule_task({name: 'job_'+b}, runner, b);
                             } else {
                                 // should throw into a deadletter queue so we can reprocess (jkurz)
