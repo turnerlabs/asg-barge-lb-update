@@ -91,7 +91,7 @@ exports.handler = function(event, context) {
                     // check for k8s- in lb names
                     // if there is no e[1] then it is an alb
                     if (e[1].length === 0) {
-                        if (e[0].includes('k8s-')) {
+                        if (e[0].includes('k8s-') || e[0].includes('k8sing-')) {
                             return true;
                         } else {
                             return false;
@@ -159,12 +159,12 @@ exports.handler = function(event, context) {
                                 TargetGroupArn: barge_elbs[b].arn
                               }, function(err, targetData) {
 
-                                 let targetInstances = targetData.TargetHealthDescriptions.map((instance) => {
+                                 var targetInstances = targetData.TargetHealthDescriptions.map(function(instance) {
                                      return instance.Target.Id;
                                  }),
                                  shouldCheck = false;
 
-                                for (let i in targetInstances) {
+                                for (var i in targetInstances) {
                                     if(asg_instances && asg_instances.indexOf(targetInstances[i]) > -1){
                                         shouldCheck = true;
                                     }
