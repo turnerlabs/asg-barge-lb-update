@@ -139,12 +139,12 @@ exports.handler = function(event, context) {
                             elb.deregisterInstancesFromLoadBalancer({
                               LoadBalancerName: barge_elbs[b],
                               Instances: [{InstanceId: instance_id }]
-                            }, awsCallback);
+                            }, awsCallback(b));
                         } else {
                             alb.deregisterTargets({
                               TargetGroupArn: barge_elbs[b].arn,
                               Targets: [{Id: instance_id}]
-                            }, awsCallback);
+                            }, awsCallback(b));
                         }
 
                     } else if(asg_event === "autoscaling:EC2_INSTANCE_LAUNCH") {
@@ -152,7 +152,7 @@ exports.handler = function(event, context) {
                             elb.registerInstancesWithLoadBalancer({
                               LoadBalancerName: barge_elbs[b],
                               Instances: [{InstanceId: instance_id }]
-                            }, awsCallback);
+                            }, awsCallback(b));
                         } else {
 
                           alb.describeTargetHealth({
@@ -180,26 +180,28 @@ exports.handler = function(event, context) {
                                 alb.registerTargets({
                                   TargetGroupArn: barge_elbs[b].arn,
                                   Targets: [{Id: instance_id}]
-                                }, awsCallback);
+                                }, awsCallback(b));
                           });
                         }
                     }
                 }
 
-                function awsCallback(err, data) {
-                    if (err) {
-                        if(err.code === 'Throttling') {
-                            console.log('Retrying ' + barge_elbs[b].name);
-                            schedule_task({name: 'job_'+b}, runner, b);
+                function awsCallback(b) {
+                    return function(err, data) {
+                        if (err) {
+                            if(err.code === 'Throttling') {
+                                console.log('Retrying ' + barge_elbs[b]);
+                                schedule_task({name: 'job_'+b}, runner, b);
+                            } else {
+                                // should throw into a deadletter queue so we can reprocess (jkurz)
+                                context.fail(err);
+                                return;
+                            }
                         } else {
-                            // should throw into a deadletter queue so we can reprocess (jkurz)
-                            context.fail(err);
-                            return;
-                        }
-                    } else {
-                        todo -= 1;
-                        if(todo === 0){
-                            context.succeed('OK');
+                            todo -= 1;
+                            if(todo === 0){
+                                context.succeed('OK');
+                            }
                         }
                     }
                 }
