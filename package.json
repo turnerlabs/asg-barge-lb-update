@@ -1,6 +1,6 @@
 {
   "name": "asg-barge-lb-update",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A tool that keeps Elastic Load Balancers in sync with k8s nodes",
   "main": "index.js",
   "dependencies": {
