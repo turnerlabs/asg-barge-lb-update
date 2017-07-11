@@ -5,7 +5,6 @@ exports.handler = function(event, context) {
     console.log('ASG Barge ELB Handler at ' + new Date().toUTCString());
     console.log(JSON.stringify(event))
     var asg_msg = JSON.parse(event.Records[0].Sns.Message);
-//    var asg_msg = JSON.parse(event.Message);
     var asg_name = asg_msg.AutoScalingGroupName;
     var instance_id = asg_msg.EC2InstanceId;
     var asg_event = asg_msg.Event;
@@ -16,6 +15,7 @@ exports.handler = function(event, context) {
         console.log("Handling Launch Event for " + asg_name + ' InstanceID=' + instance_id);
 
         var elb = new AWS.ELB({region: 'us-east-1'});
+        var alb = new AWS.ELBv2({region: 'us-east-1'});
         var route53 = new AWS.Route53();
         var asg_instances;
 
@@ -27,8 +27,7 @@ exports.handler = function(event, context) {
                   AutoScalingGroupNames: [asg_name],
                   MaxRecords: 1
                 }, function(err, data) {
-//                  console.log('retrieveASGInstances: ' + JSON.stringify(data));
-                  next(err, data);
+                    next(err, data);
                 });
             },
 
@@ -50,38 +49,78 @@ exports.handler = function(event, context) {
                         console.log('getting next marker', data.NextMarker);
                         getLbs(lbData, data.NextMarker)
                     } else {
-                        console.log("length of all the lbs", lbData.length)
-                        next(err, lbData);
+                        console.log("length of all the elbs", lbData.length)
+                        getAlbs(lbData);
                     }
                   });
                 }
+
+                function getAlbs(lbData, nextMarker) {
+                  alb.describeTargetGroups({
+                      PageSize: 400,
+                      Marker: nextMarker
+                  }, function(err, data) {
+                      lbData = lbData.concat(data.TargetGroups.map(function(_data) {
+                          _data.isAsg = true;
+                          return _data;
+                      }));
+                      if (data.NextMarker) {
+                          console.log('getting next marker for asg', data.NextMarker);
+                          getAlbs(lbData, data.NextMarker)
+                      } else {
+                          console.log("length of all the lbs", lbData.length)
+                          next(err, lbData);
+                      }
+                  })
+                }
             },
 
-            function findASGLoadBalancers(elbdata, next){
+            function findASGLoadBalancers(elbdata, next) {
                 var all_elbs = elbdata.map(function(e){
                     var elb = [];
-                    elb[0] = e.LoadBalancerName;
+                    e.Instances = e.Instances || [];
+                    elb[0] = e.LoadBalancerName || e.TargetGroupName;
                     elb[1] = e.Instances.map(function(i){return i.InstanceId});
+                    elb[2] = e.TargetGroupArn;
                     return elb;
                 });
-//                console.log(all_elbs);
-                var barge_elbs = all_elbs.filter(function(e){
+
+                var barge_elbs = all_elbs.filter(function(e) {
+
+
+                    // check for k8s- in lb names
+                    // if there is no e[1] then it is an alb
+                    if (e[1].length === 0) {
+                        if (e[0].includes('k8s-')) {
+                            return true;
+                        } else {
+                            return false;
+                        }
+                    }
+
                     for (elbinstance in e[1]){
                         if(asg_instances && asg_instances.indexOf(e[1][elbinstance]) > -1){
                             return true;
                         }
                     }
+
                     return false;
-                }).map(function(e){return e[0]});
-                console.log(barge_elbs);
-//                instance_id =  'i-2ed2029d';
+                }).map(function(e) {
+                    if (!e[2]) {
+                        return e[0];
+                    } else {
+                        return {
+                          name: e[0],
+                          arn: e[2]
+                        }
+                    }
+                });
 
                 var nextrun = Date.now();
                 var increment = 100;
 
                 var schedule_task = function(task, callback, p1, p2, p3){
                     var schedule = (nextrun+=increment) - Date.now();
-//                    console.log('nextrun=' + nextrun + ' schedule=' + schedule);
                     if(schedule < 0) schedule = 0;
                     setTimeout(function(){callback(p1, p2, p3)}, schedule);
                 };
@@ -89,49 +128,80 @@ exports.handler = function(event, context) {
                 var todo = barge_elbs.length;
                 console.log('Updating ' + todo + ' ELB-s');
 
-                var runner = function(b){
-                    if(asg_event === "autoscaling:EC2_INSTANCE_TERMINATE"){
-                        elb.deregisterInstancesFromLoadBalancer({LoadBalancerName: barge_elbs[b], Instances: [{InstanceId: instance_id }]}, function(err, data){
-                            if(err) {
-                                if(err.code === 'Throttling'){
-                                    console.log('Retrying ' + barge_elbs[b]);
-                                    schedule_task({name: 'job_'+b}, runner, b);
-                                }
-                                else {
-                                    context.fail(err);
-                                }
-                            }
-                            else {
-                                todo -= 1;
-                                if(todo === 0){
-                                    context.succeed('OK');
-                                }
-                            }
-                        });
-                    }
-                    else if(asg_event === "autoscaling:EC2_INSTANCE_LAUNCH"){
-                        elb.registerInstancesWithLoadBalancer({LoadBalancerName: barge_elbs[b], Instances: [{InstanceId: instance_id }]}, function(err, data){
-                            if(err) {
-                                if(err.code === 'Throttling'){
-                                    console.log('Retrying ' + barge_elbs[b]);
-                                    schedule_task({name: 'job_'+b}, runner, b);
-                                }
-                                else {
-                                    context.fail(err);
-                                }
-                            }
-                            else {
-                                todo -= 1;
-                                if(todo === 0){
-                                    context.succeed('OK');
-                                }
-                            }
-                        });
-                    }
-                };
-
                 for(barge_elb in barge_elbs){
                     schedule_task({name: 'job_'+barge_elb}, runner, barge_elb);
+                }
+
+                function runner(b) {
+                    if(asg_event === "autoscaling:EC2_INSTANCE_TERMINATE") {
+
+                        if (typeof barge_elbs[b] === 'string') {
+                            elb.deregisterInstancesFromLoadBalancer({
+                              LoadBalancerName: barge_elbs[b],
+                              Instances: [{InstanceId: instance_id }]
+                            }, awsCallback);
+                        } else {
+                            alb.deregisterTargets({
+                              TargetGroupArn: barge_elbs[b].arn,
+                              Targets: [{Id: instance_id}]
+                            }, awsCallback);
+                        }
+
+                    } else if(asg_event === "autoscaling:EC2_INSTANCE_LAUNCH") {
+                        if (typeof barge_elbs[b] === 'string') {
+                            elb.registerInstancesWithLoadBalancer({
+                              LoadBalancerName: barge_elbs[b],
+                              Instances: [{InstanceId: instance_id }]
+                            }, awsCallback);
+                        } else {
+
+                          alb.describeTargetHealth({
+                                TargetGroupArn: barge_elbs[b].arn
+                              }, function(err, targetData) {
+
+                                 let targetInstances = targetData.TargetHealthDescriptions.map((instance) => {
+                                     return instance.Target.Id;
+                                 }),
+                                 shouldCheck = false;
+
+                                for (let i in targetInstances) {
+                                    if(asg_instances && asg_instances.indexOf(targetInstances[i]) > -1){
+                                        shouldCheck = true;
+                                    }
+                                }
+
+                                if (shouldCheck === false) {
+                                    todo -= 1;
+                                    return false;
+                                }
+
+                                console.log("Registering", instance_id, "with", barge_elbs[b].arn);
+
+                                alb.registerTargets({
+                                  TargetGroupArn: barge_elbs[b].arn,
+                                  Targets: [{Id: instance_id}]
+                                }, awsCallback);
+                          });
+                        }
+                    }
+                }
+
+                function awsCallback(err, data) {
+                    if (err) {
+                        if(err.code === 'Throttling') {
+                            console.log('Retrying ' + barge_elbs[b].name);
+                            schedule_task({name: 'job_'+b}, runner, b);
+                        } else {
+                            // should throw into a deadletter queue so we can reprocess (jkurz)
+                            context.fail(err);
+                            return;
+                        }
+                    } else {
+                        todo -= 1;
+                        if(todo === 0){
+                            context.succeed('OK');
+                        }
+                    }
                 }
             },
 
